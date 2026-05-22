@@ -1,0 +1,22 @@
+{
+  "title": "College ERP Monitoring",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "HTTP Requests",
+      "targets": [{ "expr": "sum(http_server_requests_seconds_count)" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Latency",
+      "targets": [{ "expr": "rate(http_server_requests_seconds_sum[5m]) / rate(http_server_requests_seconds_count[5m])" }]
+    },
+    {
+      "type": "gauge",
+      "title": "JVM Memory Used",
+      "targets": [{ "expr": "jvm_memory_used_bytes" }]
+    }
+  ]
+}
