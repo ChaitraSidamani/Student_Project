@@ -7,9 +7,7 @@ const api = axios.create({
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('sms_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -30,9 +28,6 @@ export const studentAPI = {
   search: (params) => api.get('/students/search', { params }),
   filters: () => api.get('/students/filters'),
   analytics: () => api.get('/students/analytics'),
-  search: (params) => api.get('/students/search', { params }),
-  filters: () => api.get('/students/filters'),
-  analytics: () => api.get('/students/analytics'),
   getById: (id) => api.get(`/students/${id}`),
   create: (data) => api.post('/students', data),
   update: (id, data) => api.put(`/students/${id}`, data),
@@ -41,6 +36,10 @@ export const studentAPI = {
   getProfile: () => api.get('/students/profile'),
   updateMySection: (data) => api.put('/students/profile/section', data),
   registerSubjects: (data) => api.post('/students/profile/subjects', data),
+  // Global registration toggle
+  getRegistrationStatus: () => api.get('/students/registration/status'),
+  openRegistration: () => api.post('/students/registration/open'),
+  closeRegistration: () => api.post('/students/registration/close'),
 }
 
 export const courseAPI = {
@@ -117,6 +116,10 @@ export const erpAPI = {
   feesByStudent: (studentId) => api.get(`/erp/fees/student/${studentId}`),
   leaveRequests: () => api.get('/erp/leave-requests'),
   saveLeaveRequest: (data) => api.post('/erp/leave-requests', data),
+  // DB-backed subject components
+  getSubjectComponents: (subjectId) => api.get(`/erp/subject-components/${subjectId}`),
+  saveSubjectComponent: (subjectId, data) => api.post(`/erp/subject-components/${subjectId}`, data),
+  deleteSubjectComponent: (componentId) => api.delete(`/erp/subject-components/${componentId}`),
 }
 
 export const reportAPI = {

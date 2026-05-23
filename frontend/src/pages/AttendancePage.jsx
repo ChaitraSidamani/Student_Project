@@ -437,7 +437,7 @@ export default function AttendancePage() {
           <h1>Attendance</h1>
         </div>
         <div style={{ display:'flex', gap:4, background:'var(--bg-elevated)', borderRadius:10, padding:4 }}>
-          {['ADMIN', 'FACULTY'].includes(user?.role) && (
+          {user?.role === 'FACULTY' && (
             <button
               onClick={() => setTab('mark')}
               style={{
@@ -634,8 +634,8 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {/* Mark Attendance tab */}
-      {tab === 'mark' && ['ADMIN', 'FACULTY'].includes(user?.role) && (
+      {/* Mark Attendance tab — Faculty only */}
+      {tab === 'mark' && user?.role === 'FACULTY' && (
         <div>
           {/* Filters */}
           <div className="card" style={{ marginBottom:20 }}>

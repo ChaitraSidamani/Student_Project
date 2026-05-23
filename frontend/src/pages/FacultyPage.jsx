@@ -47,7 +47,8 @@ export default function FacultyPage() {
   useEffect(() => { loadData() }, [])
 
   const nextEmployeeCode = generateEmployeeCode(faculty)
-  const departmentOptions = options.departments || []
+  // Merge ERP departments with courses so every course appears as a department option
+  const departmentOptions = buildDepartmentOptions(options.departments || [], courses)
   const selectedAssignments = assignments.filter(row => row.faculty?.id === selectedFaculty?.id)
   const academicYearOptions = uniqueStrings([
     ...(options.academicYears || []),
@@ -104,6 +105,9 @@ export default function FacultyPage() {
     if (!/^[6-9]\d{9}$/.test(form.phone)) return toast.error('Phone number must be 10 digits and start with 6, 7, 8, or 9')
     setSaving(true)
     try {
+      // If the department was derived from a course (not yet in ERP departments),
+      // pass departmentCode/departmentName so the backend creates it automatically.
+      const isCourseDerived = selectedDepartment?.fromCourse === true
       const payload = {
         id: editingFaculty?.id,
         employeeCode,
@@ -113,9 +117,15 @@ export default function FacultyPage() {
         designation: form.designation,
         username,
         ...(form.password ? { password: form.password } : {}),
-        departmentId: selectedDepartment?.id || null,
-        department: selectedDepartment && numericId(selectedDepartment.id) ? selectedDepartment : null,
         active: form.active !== 'INACTIVE',
+        // If it's already a real ERP department, pass its id
+        ...(!isCourseDerived && selectedDepartment?.id
+          ? { departmentId: selectedDepartment.id, department: numericId(selectedDepartment.id) ? selectedDepartment : null }
+          : {}),
+        // If derived from course, pass code/name so backend auto-creates the dept
+        ...(isCourseDerived
+          ? { departmentCode: selectedDepartment.code, departmentName: selectedDepartment.name }
+          : {}),
       }
       await erpAPI.saveFaculty(payload)
       toast.success(editingFaculty ? 'Faculty updated' : 'Faculty added')
@@ -704,6 +714,41 @@ function cleanError(err, fallback) {
     return 'This faculty record already exists or conflicts with existing ERP data.'
   }
   return message || fallback
+}
+
+/**
+ * Merge existing ERP departments with courses so that every course
+ * automatically appears as a department option when adding faculty.
+ * Courses that already have a matching ERP department are deduplicated.
+ */
+function buildDepartmentOptions(erpDepartments, courses) {
+  const result = [...erpDepartments]
+  const existingCodes = new Set(erpDepartments.map(d => normCode(d.code)))
+
+  courses.forEach(course => {
+    const code = courseToCode(course)
+    if (!code || existingCodes.has(normCode(code))) return
+    existingCodes.add(normCode(code))
+    // Use a synthetic id prefixed with 'course:' so we know it isn't in DB yet
+    result.push({
+      id: `course:${code}`,
+      code,
+      name: course.name,
+      fromCourse: true,
+    })
+  })
+  return result
+}
+
+function courseToCode(course) {
+  const code = String(course?.code || '').trim().toUpperCase()
+  if (code.startsWith('BTECH-')) return code.replace('BTECH-', '')
+  if (code.startsWith('BTECH')) return code.replace('BTECH', '').replace(/^\W+/, '') || code
+  return code
+}
+
+function normCode(v) {
+  return String(v || '').trim().toUpperCase()
 }
 
 function isInvalidJsonError(err) {

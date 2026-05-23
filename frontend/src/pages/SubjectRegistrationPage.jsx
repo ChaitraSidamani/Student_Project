@@ -55,7 +55,7 @@ export default function SubjectRegistrationPage() {
 
   const save = async () => {
     if (!profile?.section) return toast.error('Choose your section before registering subjects')
-    if (!profile?.subjectRegistrationAllowed) return toast.error('Subject registration is not open yet')
+    if (!profile?.subjectRegistrationAllowed && !profile?.registrationOpen) return toast.error('Subject registration is not open yet')
     if (selected.length === 0) return toast.error('Select at least one subject')
     setSaving(true)
     try {

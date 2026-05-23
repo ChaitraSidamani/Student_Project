@@ -301,35 +301,20 @@ export default function StudentsPage() {
     return res.data.data?.content || []
   }
 
-  const setSubjectRegistrationForBatch = async (allowed) => {
+  const setSubjectRegistrationGlobal = async (allowed) => {
     if (!isAdmin) return
-    if (!filters.branchId || !filters.semester || !filters.academicYear) {
-      return toast.error('Select branch, semester, and academic year first')
-    }
-
-    const selectedBranch = visibleCourses.find(course => String(course.id) === String(filters.branchId))
-    const label = `${selectedBranch?.code || 'selected branch'}, Semester ${filters.semester}, ${filters.academicYear}`
-    if (!window.confirm(`${allowed ? 'Open' : 'Close'} subject registration for all students in ${label}?`)) return
-
+    if (!window.confirm(`${allowed ? 'Open' : 'Close'} subject registration for ALL students system-wide?`)) return
     setBulkRegistrationUpdating(true)
     try {
-      const rows = await fetchSelectedBatchStudents()
-      if (!rows.length) return toast.error('No matching students found')
-
-      const targets = rows.filter(student => Boolean(student.subjectRegistrationAllowed) !== allowed)
-      if (!targets.length) {
-        toast.success(`Subject registration is already ${allowed ? 'open' : 'closed'} for all matching students`)
-        return
+      if (allowed) {
+        await studentAPI.openRegistration()
+      } else {
+        await studentAPI.closeRegistration()
       }
-
-      await Promise.all(targets.map(student => studentAPI.update(student.id, {
-        ...studentUpdatePayload(student),
-        subjectRegistrationAllowed: allowed,
-      })))
-      toast.success(`Subject registration ${allowed ? 'opened' : 'closed'} for ${targets.length} student${targets.length === 1 ? '' : 's'}`)
+      toast.success(`Subject registration ${allowed ? 'opened' : 'closed'} for all students`)
       await loadStudents(true)
     } catch (err) {
-      toast.error(cleanError(err, `Could not ${allowed ? 'open' : 'close'} subject registration for selected batch`))
+      toast.error(cleanError(err, `Could not ${allowed ? 'open' : 'close'} subject registration`))
     } finally {
       setBulkRegistrationUpdating(false)
     }
@@ -474,21 +459,21 @@ export default function StudentsPage() {
             <>
               <button
                 className="btn btn-primary"
-                onClick={() => setSubjectRegistrationForBatch(true)}
-                disabled={bulkRegistrationUpdating || !filters.branchId || !filters.semester || !filters.academicYear}
-                title="Select branch, semester, and academic year to enable subject registration for all matching students"
+                onClick={() => setSubjectRegistrationGlobal(true)}
+                disabled={bulkRegistrationUpdating}
+                title="Open subject registration for ALL students system-wide"
                 style={{ justifyContent: 'center' }}
               >
-                <CheckCircle2 size={16} /> {bulkRegistrationUpdating ? 'Updating...' : 'Open Registration'}
+                <CheckCircle2 size={16} /> {bulkRegistrationUpdating ? 'Updating...' : 'Open Registration (All)'}
               </button>
               <button
                 className="btn btn-ghost"
-                onClick={() => setSubjectRegistrationForBatch(false)}
-                disabled={bulkRegistrationUpdating || !filters.branchId || !filters.semester || !filters.academicYear}
-                title="Select branch, semester, and academic year to close subject registration for all matching students"
+                onClick={() => setSubjectRegistrationGlobal(false)}
+                disabled={bulkRegistrationUpdating}
+                title="Close subject registration for ALL students system-wide"
                 style={{ justifyContent: 'center' }}
               >
-                <XCircle size={16} /> Close Registration
+                <XCircle size={16} /> Close Registration (All)
               </button>
               <button
                 className="btn btn-ghost"

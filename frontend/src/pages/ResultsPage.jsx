@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 
 const EMPTY_FILTERS = { courseId: '', semester: '', academicYear: '', subject: '' }
-const COMPONENT_STORAGE_KEY = 'sms_internal_result_components_clean'
 
 export default function ResultsPage() {
   const { user } = useAuth()
@@ -29,7 +28,7 @@ export default function ResultsPage() {
   const [studentComponentMarks, setStudentComponentMarks] = useState({})
   const [studentResultSubject, setStudentResultSubject] = useState('')
   const [studentSearch, setStudentSearch] = useState('')
-  const [componentsBySubject, setComponentsBySubject] = useState(() => readStoredComponents())
+  const [componentsBySubject, setComponentsBySubject] = useState({}) // subjectId -> components[]
   const [editingSavedMarks, setEditingSavedMarks] = useState(false)
   const [editingResultId, setEditingResultId] = useState('')
   const [saving, setSaving] = useState(false)
@@ -48,6 +47,22 @@ export default function ResultsPage() {
       const subjectRows = normalizeSubjects(dataOrEmpty(subjectRes))
       setSubjects(subjectRows)
       setFacultyAssignments(dataOrEmpty(assignmentRes))
+      // Load DB-backed components for all subjects
+      const rows = dataOrEmpty(subjectRes)
+      rows.forEach(subject => {
+        erpAPI.getSubjectComponents(subject.id)
+          .then(res => {
+            const components = (res.data.data || []).map(c => ({
+              id: String(c.id),
+              name: c.name,
+              maxMarks: c.maxMarks,
+            }))
+            if (components.length) {
+              setComponentsBySubject(prev => ({ ...prev, [subject.id]: components }))
+            }
+          })
+          .catch(() => {})
+      })
     })
   }, [])
 
@@ -156,9 +171,7 @@ export default function ResultsPage() {
     return () => { cancelled = true }
   }, [filteredStudents])
 
-  useEffect(() => {
-    localStorage.setItem(COMPONENT_STORAGE_KEY, JSON.stringify(componentsBySubject))
-  }, [componentsBySubject])
+  // Components are now DB-backed; no localStorage needed
 
   const setFilter = key => event => {
     const value = event.target.value
@@ -788,13 +801,10 @@ function facultyCanAccessResult(result, student, assignments) {
   ))
 }
 
+// Components are now DB-backed (loaded from /api/erp/subject-components)
+// Legacy localStorage helper kept for backward compatibility during migration
 function readStoredComponents() {
-  try {
-    localStorage.removeItem('sms_internal_result_components')
-    return JSON.parse(localStorage.getItem(COMPONENT_STORAGE_KEY) || '{}')
-  } catch {
-    return {}
-  }
+  try { return JSON.parse(localStorage.getItem('sms_internal_result_components_clean') || '{}') } catch { return {} }
 }
 
 function parseResultComponents(result) {
@@ -817,6 +827,9 @@ function parseResultMeta(result) {
 }
 
 function isResultShared(result) {
+  // Use proper boolean fields (Fix 2); fall back to legacy JSON remarks for old data
+  if (result?.published === true || result?.exportedToAdmin === true) return true
+  // Legacy fallback for rows saved before the fix
   const meta = parseResultMeta(result)
   return meta.published === true || meta.exportedToAdmin === true
 }
@@ -909,21 +922,22 @@ function defaultStudentSubject(student, selectedSubject, subjectOptions, courses
 
 function findSubjectComponents(subject, componentsBySubject = {}, scope = {}) {
   if (!subject?.name && !subject?.code) return []
+  // Primary: look up by subject DB id (DB-backed components)
+  const subjectId = subject.id || subject.subjectId
+  if (subjectId && componentsBySubject[subjectId]?.length) {
+    return componentsBySubject[subjectId]
+  }
+  // Fallback: legacy key-based lookup
   const keys = subjectComponentKeys(subject, scope)
   for (const key of keys) {
     const rows = componentsBySubject[key]
     if (Array.isArray(rows) && rows.length) return rows
   }
-
   const subjectCode = String(subject.code || '').trim().toLowerCase()
   const branchCode = String(scope.branchCode || subject.branchCode || subject.branch?.code || '').trim().toLowerCase()
   const entry = Object.entries(componentsBySubject).find(([key, rows]) => (
-    Array.isArray(rows) &&
-    rows.length &&
-    subjectCode &&
-    branchCode &&
-    key.toLowerCase().includes(subjectCode) &&
-    key.toLowerCase().includes(branchCode)
+    Array.isArray(rows) && rows.length && subjectCode && branchCode &&
+    key.toLowerCase().includes(subjectCode) && key.toLowerCase().includes(branchCode)
   ))
   return entry?.[1] || []
 }
