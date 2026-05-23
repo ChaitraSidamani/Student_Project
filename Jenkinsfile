@@ -36,6 +36,17 @@ pipeline {
             }
         }
 
+        stage('Cleanup IAM') {
+            steps {
+                sh '''
+                    aws iam remove-role-from-instance-profile --instance-profile-name college-erp-ec2-profile --role-name college-erp-ec2-role 2>/dev/null || true
+                    aws iam delete-instance-profile --instance-profile-name college-erp-ec2-profile 2>/dev/null || true
+                    aws iam delete-role --role-name college-erp-ec2-role 2>/dev/null || true
+                    echo "IAM cleanup done"
+                '''
+            }
+        }
+
         stage('Terraform Init') {
             steps {
                 dir('terraform') {
@@ -55,7 +66,12 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 dir('terraform') {
-                    sh 'terraform apply -auto-approve tfplan'
+                    sh '''
+                        # Import existing IAM resources if they already exist (safe to run even if they don't)
+                        terraform import aws_iam_role.ec2_role college-erp-ec2-role 2>/dev/null || true
+                        terraform import aws_iam_instance_profile.ec2_profile college-erp-ec2-profile 2>/dev/null || true
+                        terraform apply -auto-approve tfplan
+                    '''
                 }
             }
         }
@@ -93,84 +109,16 @@ pipeline {
         stage('Create Deploy Script') {
             steps {
                 sh """
-                    cat > /tmp/deploy.sh << 'DEPLOYEOF'
-#!/bin/bash
-set -e
-export AWS_DEFAULT_REGION=us-east-1
-cd /home/ubuntu
+                    sed -e 's|\\\${S3_BUCKET}|${env.S3_BUCKET}|g' \
+                        -e 's|\\\${INSTANCE_IP}|${env.INSTANCE_IP}|g' \
+                        deploy.sh > /tmp/deploy.sh
 
-echo "=== Downloading files from S3 ==="
-aws s3 cp s3://${env.S3_BUCKET}/.env          /home/ubuntu/.env
-aws s3 cp s3://${env.S3_BUCKET}/schema.sql    /home/ubuntu/schema.sql
-aws s3 cp s3://${env.S3_BUCKET}/app.jar       /home/ubuntu/app.jar
-aws s3 cp --recursive s3://${env.S3_BUCKET}/frontend  /home/ubuntu/frontend/
-aws s3 cp --recursive s3://${env.S3_BUCKET}/monitoring /home/ubuntu/monitoring/
-
-echo "=== Updating CORS with actual instance IP ==="
-sed -i 's|APP_CORS_ALLOWED_ORIGINS=.*|APP_CORS_ALLOWED_ORIGINS=http://${env.INSTANCE_IP}|' /home/ubuntu/.env
-
-echo "=== Loading environment variables ==="
-set -a
-source /home/ubuntu/.env
-set +a
-
-echo "=== Setting up MySQL ==="
-mysql -u root -p"\$DB_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS sms_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-mysql -u root -p"\$DB_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '\$SPRING_DATASOURCE_USERNAME'@'localhost' IDENTIFIED BY '\$SPRING_DATASOURCE_PASSWORD';"
-mysql -u root -p"\$DB_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON sms_db.* TO '\$SPRING_DATASOURCE_USERNAME'@'localhost'; FLUSH PRIVILEGES;"
-mysql -u root -p"\$DB_ROOT_PASSWORD" sms_db < /home/ubuntu/schema.sql
-
-echo "=== Deploying Prometheus config ==="
-cp /home/ubuntu/monitoring/prometheus.yml /etc/prometheus/prometheus.yml
-chown prometheus:prometheus /etc/prometheus/prometheus.yml
-systemctl restart prometheus
-
-echo "=== Starting Spring Boot Backend on port 8082 ==="
-pkill -f 'app.jar' || true
-sleep 3
-DB_URL="jdbc:mysql://localhost:3306/sms_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
-nohup java -jar /home/ubuntu/app.jar \
-  --spring.datasource.url="$DB_URL" \
-  --spring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
-  --spring.datasource.password="$SPRING_DATASOURCE_PASSWORD" \
-  --app.cors.allowed-origins="http://${env.INSTANCE_IP}" \
-  > /var/log/backend.log 2>&1 &
-echo "Backend started with PID: \$!"
-sleep 10
-curl -s http://localhost:8082/actuator/health || echo "Backend still starting..."
-
-echo "=== Deploying Frontend to Nginx ==="
-cp -r /home/ubuntu/frontend/* /var/www/html/
-
-cat > /etc/nginx/sites-available/default << NGINXEOF
-server {
-    listen 80;
-    root /var/www/html;
-    index index.html;
-
-    location / {
-        try_files \\\$uri \\\$uri/ /index.html;
-    }
-
-    location /api {
-        proxy_pass http://localhost:8082;
-        proxy_set_header Host \\\$host;
-        proxy_set_header X-Real-IP \\\$remote_addr;
-        proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
-    }
-}
-NGINXEOF
-
-nginx -t && systemctl restart nginx
-echo "=== Deployment complete! ==="
-DEPLOYEOF
-
-                    echo "Deploy script created"
                     aws s3 cp /tmp/deploy.sh s3://${env.S3_BUCKET}/deploy.sh
                     echo "Deploy script uploaded to S3"
                 """
             }
         }
+
 
         stage('Wait for Instance Ready') {
             steps {
