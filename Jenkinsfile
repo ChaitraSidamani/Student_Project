@@ -128,11 +128,12 @@ systemctl restart prometheus
 echo "=== Starting Spring Boot Backend on port 8082 ==="
 pkill -f 'app.jar' || true
 sleep 3
+DB_URL="jdbc:mysql://localhost:3306/sms_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
 nohup java -jar /home/ubuntu/app.jar \
-  --spring.datasource.url=jdbc:mysql://localhost:3306/sms_db?createDatabaseIfNotExist=true\&useSSL=false\&serverTimezone=UTC \
-  --spring.datasource.username=\$SPRING_DATASOURCE_USERNAME \
-  --spring.datasource.password=\$SPRING_DATASOURCE_PASSWORD \
-  --app.cors.allowed-origins=http://${env.INSTANCE_IP} \
+  --spring.datasource.url="$DB_URL" \
+  --spring.datasource.username="$SPRING_DATASOURCE_USERNAME" \
+  --spring.datasource.password="$SPRING_DATASOURCE_PASSWORD" \
+  --app.cors.allowed-origins="http://${env.INSTANCE_IP}" \
   > /var/log/backend.log 2>&1 &
 echo "Backend started with PID: \$!"
 sleep 10
