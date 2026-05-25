@@ -13,6 +13,7 @@ apt-get install -y wget curl unzip gnupg apt-transport-https
 
 # ── AWS CLI ───────────────────────────────────────────────────────────────────
 echo "=== Installing AWS CLI ==="
+rm -rf /tmp/aws /tmp/awscliv2.zip
 curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update
