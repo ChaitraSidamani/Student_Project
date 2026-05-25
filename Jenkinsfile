@@ -39,10 +39,11 @@ pipeline {
         stage('Cleanup IAM') {
             steps {
                 sh '''
+                    # Clean up leftover IAM resources from previous failed runs
                     aws iam remove-role-from-instance-profile --instance-profile-name college-erp-ec2-profile --role-name college-erp-ec2-role 2>/dev/null || true
                     aws iam delete-instance-profile --instance-profile-name college-erp-ec2-profile 2>/dev/null || true
                     aws iam delete-role --role-name college-erp-ec2-role 2>/dev/null || true
-                    echo "IAM cleanup done"
+                    echo "Cleanup done"
                 '''
             }
         }
@@ -50,7 +51,12 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir('terraform') {
-                    sh 'terraform init'
+                    sh '''
+                        terraform init
+                        # Import existing IAM resources if they already exist (safe to run even if they don't)
+                        terraform import aws_iam_role.ec2_role college-erp-ec2-role 2>/dev/null || true
+                        terraform import aws_iam_instance_profile.ec2_profile college-erp-ec2-profile 2>/dev/null || true
+                    '''
                 }
             }
         }
@@ -66,12 +72,7 @@ pipeline {
         stage('Terraform Apply') {
             steps {
                 dir('terraform') {
-                    sh '''
-                        # Import existing IAM resources if they already exist (safe to run even if they don't)
-                        terraform import aws_iam_role.ec2_role college-erp-ec2-role 2>/dev/null || true
-                        terraform import aws_iam_instance_profile.ec2_profile college-erp-ec2-profile 2>/dev/null || true
-                        terraform apply -auto-approve tfplan
-                    '''
+                    sh 'terraform apply -auto-approve tfplan'
                 }
             }
         }
@@ -163,24 +164,27 @@ pipeline {
                         --document-name "AWS-RunShellScript" \
                         --region us-east-1 \
                         --timeout-seconds 600 \
-                        --parameters commands="aws s3 cp s3://${env.S3_BUCKET}/deploy.sh /home/ubuntu/deploy.sh && chmod +x /home/ubuntu/deploy.sh && bash /home/ubuntu/deploy.sh" \
+                        --parameters commands="aws s3 cp s3://${env.S3_BUCKET}/deploy.sh /home/ubuntu/deploy.sh && chmod +x /home/ubuntu/deploy.sh && sudo bash /home/ubuntu/deploy.sh" \
                         --query "Command.CommandId" \
                         --output text)
 
                     echo "SSM Command ID: \$COMMAND_ID"
-
                     echo "Waiting for deployment to complete..."
-                    aws ssm wait command-executed \
-                        --command-id \$COMMAND_ID \
-                        --instance-id ${env.INSTANCE_ID} \
-                        --region us-east-1
 
-                    STATUS=\$(aws ssm get-command-invocation \
-                        --command-id \$COMMAND_ID \
-                        --instance-id ${env.INSTANCE_ID} \
-                        --region us-east-1 \
-                        --query "Status" \
-                        --output text)
+                    # Poll every 30s instead of using waiter so we can always get output
+                    for i in \$(seq 1 20); do
+                        sleep 30
+                        STATUS=\$(aws ssm get-command-invocation \
+                            --command-id \$COMMAND_ID \
+                            --instance-id ${env.INSTANCE_ID} \
+                            --region us-east-1 \
+                            --query "Status" \
+                            --output text 2>/dev/null || echo "Pending")
+                        echo "Attempt \$i: Status = \$STATUS"
+                        if [ "\$STATUS" = "Success" ] || [ "\$STATUS" = "Failed" ] || [ "\$STATUS" = "TimedOut" ] || [ "\$STATUS" = "Cancelled" ]; then
+                            break
+                        fi
+                    done
 
                     OUTPUT=\$(aws ssm get-command-invocation \
                         --command-id \$COMMAND_ID \
@@ -196,9 +200,11 @@ pipeline {
                         --query "StandardErrorContent" \
                         --output text)
 
-                    echo "Status:  \$STATUS"
-                    echo "Output:  \$OUTPUT"
-                    echo "Errors:  \$ERROR"
+                    echo "====== DEPLOY OUTPUT ======"
+                    echo "\$OUTPUT"
+                    echo "====== DEPLOY ERRORS ======"
+                    echo "\$ERROR"
+                    echo "====== STATUS: \$STATUS ======"
 
                     if [ "\$STATUS" != "Success" ]; then
                         echo "Deployment failed with status: \$STATUS"
