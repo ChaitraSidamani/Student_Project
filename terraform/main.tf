@@ -137,87 +137,8 @@ resource "aws_instance" "erp" {
 
   user_data = <<-SHELL
     #!/bin/bash
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
-
-    apt-get update -y && apt-get upgrade -y
-
-    # SSM Agent
     systemctl enable amazon-ssm-agent
     systemctl start amazon-ssm-agent
-
-    # MySQL 8
-    apt-get install -y mysql-server
-    systemctl enable mysql
-    systemctl start mysql
-    mysql -u root <<SQL
-      ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${var.db_password}';
-      CREATE DATABASE IF NOT EXISTS sms_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-      FLUSH PRIVILEGES;
-SQL
-
-    # Java 21
-    apt-get install -y wget apt-transport-https gnupg unzip curl
-    wget -qO /tmp/temurin.asc https://packages.adoptium.net/artifactory/api/gpg/key/public
-    gpg --dearmor < /tmp/temurin.asc > /usr/share/keyrings/adoptium.gpg
-    echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb jammy main" \
-      > /etc/apt/sources.list.d/adoptium.list
-    apt-get update -y && apt-get install -y temurin-21-jdk
-
-    # AWS CLI is pre-installed on Ubuntu 22.04 AMI — no install needed
-
-    # Nginx
-    apt-get install -y nginx
-    systemctl enable nginx
-
-    # Prometheus
-    PROM_VERSION="2.51.2"
-    wget -qO /tmp/prometheus.tar.gz \
-      https://github.com/prometheus/prometheus/releases/download/v$${PROM_VERSION}/prometheus-$${PROM_VERSION}.linux-amd64.tar.gz
-    tar -xzf /tmp/prometheus.tar.gz -C /tmp
-    mv /tmp/prometheus-$${PROM_VERSION}.linux-amd64/prometheus /usr/local/bin/
-    mv /tmp/prometheus-$${PROM_VERSION}.linux-amd64/promtool   /usr/local/bin/
-    mkdir -p /etc/prometheus /var/lib/prometheus
-    cat > /etc/prometheus/prometheus.yml <<PROM
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: sms-backend
-    metrics_path: /actuator/prometheus
-    static_configs:
-      - targets: ['localhost:8082']
-PROM
-    useradd --no-create-home --shell /bin/false prometheus || true
-    chown -R prometheus:prometheus /etc/prometheus /var/lib/prometheus
-    cat > /etc/systemd/system/prometheus.service <<SVC
-[Unit]
-Description=Prometheus
-After=network.target
-[Service]
-User=prometheus
-ExecStart=/usr/local/bin/prometheus \
-  --config.file=/etc/prometheus/prometheus.yml \
-  --storage.tsdb.path=/var/lib/prometheus
-Restart=always
-[Install]
-WantedBy=multi-user.target
-SVC
-    systemctl daemon-reload
-    systemctl enable prometheus
-    systemctl start prometheus
-
-    # Grafana
-    wget -qO /usr/share/keyrings/grafana.key https://apt.grafana.com/gpg.key
-    echo "deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main" \
-      > /etc/apt/sources.list.d/grafana.list
-    apt-get update -y && apt-get install -y grafana
-    sed -i 's/^;http_port = 3000/http_port = 3001/' /etc/grafana/grafana.ini
-    systemctl enable grafana-server
-    systemctl start grafana-server
-
-    mkdir -p /home/ubuntu/frontend
-    chown -R ubuntu:ubuntu /home/ubuntu
-    echo "===== EC2 bootstrap complete =====" > /tmp/bootstrap_done.txt
   SHELL
 
   tags = { Name = "college-erp-server" }

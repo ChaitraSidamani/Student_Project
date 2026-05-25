@@ -118,8 +118,8 @@ pipeline {
         stage('Wait for Instance Ready') {
             steps {
                 sh """
-                    echo "Waiting 300 seconds for EC2 user-data to complete..."
-                    sleep 300
+                    echo "Waiting 60 seconds for EC2 and SSM agent to start..."
+                    sleep 60
 
                     echo "Checking SSM agent status..."
                     for i in 1 2 3 4 5; do
@@ -158,7 +158,7 @@ pipeline {
                         --document-name "AWS-RunShellScript" \
                         --region us-east-1 \
                         --timeout-seconds 600 \
-                        --parameters commands="export PATH=/usr/local/bin:/usr/bin:/bin:\$PATH && aws s3 cp s3://${env.S3_BUCKET}/deploy.sh /home/ubuntu/deploy.sh && chmod +x /home/ubuntu/deploy.sh && sudo bash /home/ubuntu/deploy.sh" \
+                        --parameters '{"commands":["#!/bin/bash","set -e","apt-get install -y unzip curl 2>/dev/null || true","if ! command -v aws &>/dev/null; then curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip && unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install --update; fi","/usr/local/bin/aws s3 cp s3://${env.S3_BUCKET}/deploy.sh /home/ubuntu/deploy.sh","chmod +x /home/ubuntu/deploy.sh","bash /home/ubuntu/deploy.sh"]}' \
                         --query "Command.CommandId" \
                         --output text)
 
