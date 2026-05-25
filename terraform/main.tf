@@ -16,46 +16,24 @@ provider "aws" {
   region = var.aws_region
 }
 
-# ─── VPC & NETWORKING ────────────────────────────────────────────────────────
+# ─── USE THE DEFAULT VPC — no custom VPC created ─────────────────────────────
 
-resource "aws_vpc" "erp" {
-  cidr_block           = "10.20.0.0/16"
-  enable_dns_hostnames = true
-  tags = { Name = "college-erp-vpc" }
+data "aws_vpc" "default" {
+  default = true
 }
 
-resource "aws_internet_gateway" "erp" {
-  vpc_id = aws_vpc.erp.id
-  tags   = { Name = "college-erp-igw" }
-}
-
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.erp.id
-  cidr_block              = "10.20.1.0/24"
-  map_public_ip_on_launch = true
-  availability_zone       = "${var.aws_region}a"
-  tags = { Name = "college-erp-public-subnet" }
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.erp.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.erp.id
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
   }
-  tags = { Name = "college-erp-rt" }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
 }
 
 # ─── SECURITY GROUP ──────────────────────────────────────────────────────────
 
 resource "aws_security_group" "erp" {
   name   = "college-erp-sg"
-  vpc_id = aws_vpc.erp.id
+  vpc_id = data.aws_vpc.default.id
 
   ingress {
     from_port   = 22
@@ -109,6 +87,9 @@ resource "aws_iam_role" "ec2_role" {
       Action    = "sts:AssumeRole"
     }]
   })
+  lifecycle {
+    ignore_changes = [assume_role_policy]
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ssm" {
@@ -124,6 +105,9 @@ resource "aws_iam_role_policy_attachment" "s3" {
 resource "aws_iam_instance_profile" "ec2_profile" {
   name = "college-erp-ec2-profile"
   role = aws_iam_role.ec2_role.name
+  lifecycle {
+    ignore_changes = [role]
+  }
 }
 
 # ─── EC2 INSTANCE ────────────────────────────────────────────────────────────
@@ -140,7 +124,7 @@ data "aws_ami" "ubuntu" {
 resource "aws_instance" "erp" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public.id
+  subnet_id                   = tolist(data.aws_subnets.default.ids)[0]
   vpc_security_group_ids      = [aws_security_group.erp.id]
   key_name                    = var.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
@@ -148,7 +132,7 @@ resource "aws_instance" "erp" {
 
   root_block_device {
     volume_size = 20
-    volume_type = "gp3"
+    volume_type = "gp2"
   }
 
   user_data = <<-SHELL
@@ -233,10 +217,8 @@ SVC
     systemctl enable grafana-server
     systemctl start grafana-server
 
-    # App dirs
     mkdir -p /home/ubuntu/frontend
     chown -R ubuntu:ubuntu /home/ubuntu
-
     echo "===== EC2 bootstrap complete =====" > /tmp/bootstrap_done.txt
   SHELL
 
@@ -255,7 +237,7 @@ resource "aws_s3_bucket" "deploy" {
   tags          = { Name = "college-erp-deploy" }
 }
 
-# ─── OUTPUTS — named exactly as the old Jenkinsfile expects ──────────────────
+# ─── OUTPUTS ─────────────────────────────────────────────────────────────────
 
 output "instance_public_ip" {
   value = aws_instance.erp.public_ip
