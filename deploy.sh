@@ -40,14 +40,16 @@ echo "=== Installing MySQL ==="
 apt-get install -y mysql-server
 systemctl enable mysql
 systemctl start mysql
+
+# Ubuntu 22.04 fresh MySQL: root uses auth_socket, connect without password
 mysql -u root <<SQL
-  ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_ROOT_PASSWORD}';
   CREATE DATABASE IF NOT EXISTS sms_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE USER IF NOT EXISTS '${SPRING_DATASOURCE_USERNAME}'@'localhost' IDENTIFIED BY '${SPRING_DATASOURCE_PASSWORD}';
+  GRANT ALL PRIVILEGES ON sms_db.* TO '${SPRING_DATASOURCE_USERNAME}'@'localhost';
   FLUSH PRIVILEGES;
 SQL
-mysql -u root -p"${DB_ROOT_PASSWORD}" -e "CREATE USER IF NOT EXISTS '${SPRING_DATASOURCE_USERNAME}'@'localhost' IDENTIFIED BY '${SPRING_DATASOURCE_PASSWORD}';"
-mysql -u root -p"${DB_ROOT_PASSWORD}" -e "GRANT ALL PRIVILEGES ON sms_db.* TO '${SPRING_DATASOURCE_USERNAME}'@'localhost'; FLUSH PRIVILEGES;"
-mysql -u root -p"${DB_ROOT_PASSWORD}" sms_db < /home/ubuntu/schema.sql
+
+mysql -u "${SPRING_DATASOURCE_USERNAME}" -p"${SPRING_DATASOURCE_PASSWORD}" sms_db < /home/ubuntu/schema.sql
 echo "MySQL setup complete"
 
 # ── Java 21 ───────────────────────────────────────────────────────────────────
