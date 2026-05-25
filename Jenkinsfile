@@ -36,35 +36,30 @@ pipeline {
             }
         }
 
-        stage('Cleanup IAM') {
-            steps {
-                sh '''
-                    # Clean up leftover IAM resources from previous failed runs
-                    aws iam remove-role-from-instance-profile --instance-profile-name college-erp-ec2-profile --role-name college-erp-ec2-role 2>/dev/null || true
-                    aws iam delete-instance-profile --instance-profile-name college-erp-ec2-profile 2>/dev/null || true
-                    aws iam delete-role --role-name college-erp-ec2-role 2>/dev/null || true
-                    echo "Cleanup done"
-                '''
-            }
-        }
-
-        stage('Terraform Init') {
+        stage('Terraform Init and Plan') {
             steps {
                 dir('terraform') {
                     sh '''
                         terraform init
-                        # Import existing IAM resources if they already exist (safe to run even if they don't)
-                        terraform import aws_iam_role.ec2_role college-erp-ec2-role 2>/dev/null || true
-                        terraform import aws_iam_instance_profile.ec2_profile college-erp-ec2-profile 2>/dev/null || true
-                    '''
-                }
-            }
-        }
 
-        stage('Terraform Plan') {
-            steps {
-                dir('terraform') {
-                    sh 'terraform plan -out=tfplan'
+                        # ── Import any leftover resources so Terraform adopts them ──
+                        # IAM Role
+                        terraform import aws_iam_role.ec2_role college-erp-ec2-role 2>/dev/null || true
+                        # IAM Instance Profile
+                        terraform import aws_iam_instance_profile.ec2_profile college-erp-ec2-profile 2>/dev/null || true
+                        # Security Group
+                        SG_ID=$(aws ec2 describe-security-groups --region us-east-1 \
+                            --filters "Name=group-name,Values=college-erp-sg" \
+                            --query "SecurityGroups[0].GroupId" \
+                            --output text 2>/dev/null)
+                        if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
+                            echo "Importing existing security group: $SG_ID"
+                            terraform import aws_security_group.erp $SG_ID 2>/dev/null || true
+                        fi
+
+                        # ── Now plan with full state ──
+                        terraform plan -out=tfplan
+                    '''
                 }
             }
         }
@@ -95,8 +90,8 @@ pipeline {
                 sh """
                     cp \${ENV_FILE} .env
 
-                    aws s3 cp .env                                               s3://${env.S3_BUCKET}/.env
-                    aws s3 cp database/schema.sql                               s3://${env.S3_BUCKET}/schema.sql
+                    aws s3 cp .env                                                s3://${env.S3_BUCKET}/.env
+                    aws s3 cp database/schema.sql                                s3://${env.S3_BUCKET}/schema.sql
                     aws s3 cp backend/target/student-management-system-1.0.0.jar s3://${env.S3_BUCKET}/app.jar
                     aws s3 cp --recursive frontend/dist                          s3://${env.S3_BUCKET}/frontend/
                     aws s3 cp --recursive monitoring                              s3://${env.S3_BUCKET}/monitoring/
@@ -119,7 +114,6 @@ pipeline {
                 """
             }
         }
-
 
         stage('Wait for Instance Ready') {
             steps {
@@ -171,7 +165,6 @@ pipeline {
                     echo "SSM Command ID: \$COMMAND_ID"
                     echo "Waiting for deployment to complete..."
 
-                    # Poll every 30s instead of using waiter so we can always get output
                     for i in \$(seq 1 20); do
                         sleep 30
                         STATUS=\$(aws ssm get-command-invocation \
