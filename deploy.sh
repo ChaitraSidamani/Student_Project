@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export PATH=$PATH:/usr/local/bin
 export AWS_DEFAULT_REGION=us-east-1
 cd /home/ubuntu
 
