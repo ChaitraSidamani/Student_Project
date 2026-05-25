@@ -164,9 +164,7 @@ SQL
       > /etc/apt/sources.list.d/adoptium.list
     apt-get update -y && apt-get install -y temurin-21-jdk
 
-    # AWS CLI
-    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-    unzip -q /tmp/awscliv2.zip -d /tmp && /tmp/aws/install
+    # AWS CLI is pre-installed on Ubuntu 22.04 AMI — no install needed
 
     # Nginx
     apt-get install -y nginx
