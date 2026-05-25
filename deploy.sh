@@ -136,16 +136,51 @@ nginx -t && systemctl restart nginx
 echo "=== Starting Spring Boot Backend ==="
 pkill -f 'app.jar' 2>/dev/null || true
 sleep 2
+
 DB_URL="jdbc:mysql://localhost:3306/sms_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
-nohup java -jar /home/ubuntu/app.jar \
-  --spring.datasource.url="${DB_URL}" \
-  --spring.datasource.username="${SPRING_DATASOURCE_USERNAME}" \
-  --spring.datasource.password="${SPRING_DATASOURCE_PASSWORD}" \
-  --app.cors.allowed-origins="http://${INSTANCE_IP}" \
-  > /var/log/backend.log 2>&1 &
-echo "Backend started with PID: $!"
+
+# Create a pre-start script that updates the IP on every boot
+cat > /home/ubuntu/update-ip.sh << 'IPEOF'
+#!/bin/bash
+# Fetch current public IP from AWS instance metadata (IMDSv2)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+CURRENT_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/public-ipv4)
+
+if [ -n "$CURRENT_IP" ]; then
+    sed -i "s|APP_CORS_ALLOWED_ORIGINS=.*|APP_CORS_ALLOWED_ORIGINS=http://${CURRENT_IP}|" /home/ubuntu/.env
+    echo "Updated CORS origin to http://${CURRENT_IP}"
+fi
+IPEOF
+chmod +x /home/ubuntu/update-ip.sh
+
+# Create systemd service so backend survives reboots
+cat > /etc/systemd/system/sms-backend.service << SVEOF
+[Unit]
+Description=SMS Backend
+After=network.target mysql.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStartPre=/home/ubuntu/update-ip.sh
+EnvironmentFile=/home/ubuntu/.env
+ExecStart=/usr/bin/java -jar /home/ubuntu/app.jar
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVEOF
+
+systemctl daemon-reload
+systemctl enable sms-backend
+systemctl restart sms-backend
 sleep 15
-curl -s http://localhost:8082/actuator/health || echo "Backend still starting, check /var/log/backend.log"
+curl -s http://localhost:8082/actuator/health || echo "Backend still starting, check: journalctl -u sms-backend -f"
 
 echo "===== Deployment complete! ====="
 echo "App:        http://${INSTANCE_IP}"
