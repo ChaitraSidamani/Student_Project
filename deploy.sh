@@ -43,13 +43,13 @@ systemctl start mysql
 
 # Ubuntu 22.04 fresh MySQL: root uses auth_socket, connect without password
 mysql -u root <<SQL
-  CREATE DATABASE IF NOT EXISTS sms_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE DATABASE IF NOT EXISTS smsdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
   CREATE USER IF NOT EXISTS '${SPRING_DATASOURCE_USERNAME}'@'localhost' IDENTIFIED BY '${SPRING_DATASOURCE_PASSWORD}';
-  GRANT ALL PRIVILEGES ON sms_db.* TO '${SPRING_DATASOURCE_USERNAME}'@'localhost';
+  GRANT ALL PRIVILEGES ON smsdb.* TO '${SPRING_DATASOURCE_USERNAME}'@'localhost';
   FLUSH PRIVILEGES;
 SQL
 
-mysql -u "${SPRING_DATASOURCE_USERNAME}" -p"${SPRING_DATASOURCE_PASSWORD}" sms_db < /home/ubuntu/schema.sql
+mysql -u "${SPRING_DATASOURCE_USERNAME}" -p"${SPRING_DATASOURCE_PASSWORD}" smsdb < /home/ubuntu/schema.sql
 echo "MySQL setup complete"
 
 # ── Java 21 ───────────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ echo "=== Starting Spring Boot Backend ==="
 pkill -f 'app.jar' 2>/dev/null || true
 sleep 2
 
-DB_URL="jdbc:mysql://localhost:3306/sms_db?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
+DB_URL="jdbc:mysql://localhost:3306/smsdb?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC"
 
 # Create a pre-start script that updates the IP on every boot
 cat > /home/ubuntu/update-ip.sh << 'IPEOF'
